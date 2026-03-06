@@ -1,16 +1,24 @@
-from blessed import Terminal
+import tkinter as tk
 import random
-import time
 import json
 import os
 
 # Configuration
-term = Terminal()
-WIDTH = 10
-HEIGHT = 20
-TICK_RATE = 0.5  # seconds per drop
+WIDTH, HEIGHT = 10, 20
+BLOCK_SIZE = 30
 HIGHSCORE_FILE = 'highscores.json'
 MAX_HIGHS = 3
+
+# Colors
+COLORS = [
+    "cyan",  # I
+    "yellow",  # O
+    "purple",  # T
+    "green",  # S
+    "red",  # Z
+    "blue",  # J
+    "orange",  # L
+]
 
 # Tetromino shapes
 SHAPES = [
@@ -50,14 +58,17 @@ def add_score(score):
     save_highscores(scores)
 
 
-def draw_board(board, score):
-    with term.location():
-        print(term.clear)
-        for y, row in enumerate(board):
-            for x, cell in enumerate(row):
-                ch = '#' if cell else '.'
-                print(term.move_xy(x, y) + ch, end='')
-        print(term.move_xy(WIDTH + 2, 0) + f"Score: {score}")
+def draw_board(canvas, board):
+    canvas.delete("all")
+    for y, row in enumerate(board):
+        for x, cell in enumerate(row):
+            if cell:
+                color = COLORS[cell - 1]
+                canvas.create_rectangle(
+                    x * BLOCK_SIZE, y * BLOCK_SIZE,
+                    (x + 1) * BLOCK_SIZE, (y + 1) * BLOCK_SIZE,
+                    fill=color, outline="black"
+                )
 
 
 def merge_shape(board, shape, pos):
@@ -65,7 +76,7 @@ def merge_shape(board, shape, pos):
     for y, row in enumerate(shape):
         for x, cell in enumerate(row):
             if cell:
-                board[y0 + y][x0 + x] = 1
+                board[y0 + y][x0 + x] = cell
 
 
 def collision(board, shape, pos):
@@ -90,58 +101,85 @@ def clear_lines(board):
 
 
 def game():
+    root = tk.Tk()
+    root.title("Tetris")
+
+    canvas = tk.Canvas(root, width=WIDTH * BLOCK_SIZE, height=HEIGHT * BLOCK_SIZE, bg="white")
+    canvas.pack()
+
     board = [[0] * WIDTH for _ in range(HEIGHT)]
     score = 0
 
     shape = random.choice(SHAPES)
+    color = random.randint(1, len(COLORS))
+    shape = [[cell * color for cell in row] for row in shape]
     pos = (-len(shape), WIDTH // 2 - len(shape[0]) // 2)
-    drop_time = time.time()
 
-    with term.cbreak(), term.hidden_cursor():
-        while True:
-            now = time.time()
-            if now - drop_time > TICK_RATE:
-                new_pos = (pos[0] + 1, pos[1])
-                if not collision(board, shape, new_pos):
-                    pos = new_pos
-                else:
-                    if pos[0] < 0:
-                        # game over
-                        add_score(score)
-                        return score
-                    merge_shape(board, shape, pos)
-                    board, cleared = clear_lines(board)
-                    score += cleared * 100
-                    shape = random.choice(SHAPES)
-                    pos = (-len(shape), WIDTH // 2 - len(shape[0]) // 2)
-                drop_time = now
+    def drop():
+        nonlocal shape, pos, board, score
+        new_pos = (pos[0] + 1, pos[1])
+        if not collision(board, shape, new_pos):
+            pos = new_pos
+        else:
+            if pos[0] < 0:
+                add_score(score)
+                root.destroy()
+                return
+            merge_shape(board, shape, pos)
+            board, cleared = clear_lines(board)
+            score += cleared * 100
+            shape = random.choice(SHAPES)
+            color = random.randint(1, len(COLORS))
+            shape = [[cell * color for cell in row] for row in shape]
+            pos = (-len(shape), WIDTH // 2 - len(shape[0]) // 2)
+        draw_board(canvas, board)
+        draw_board(canvas, [[0] * WIDTH for _ in range(HEIGHT)])
+        for y, row in enumerate(shape):
+            for x, cell in enumerate(row):
+                if cell:
+                    canvas.create_rectangle(
+                        (pos[1] + x) * BLOCK_SIZE, (pos[0] + y) * BLOCK_SIZE,
+                        (pos[1] + x + 1) * BLOCK_SIZE, (pos[0] + y + 1) * BLOCK_SIZE,
+                        fill=COLORS[cell - 1], outline="black"
+                    )
+        root.after(500, drop)
 
-            draw_board(board, score)
+    def move_left(event):
+        nonlocal pos
+        new_pos = (pos[0], pos[1] - 1)
+        if not collision(board, shape, new_pos):
+            pos = new_pos
 
-            key = term.inkey(timeout=0.01)
-            if key.name == "KEY_LEFT":
-                new_pos = (pos[0], pos[1] - 1)
-                if not collision(board, shape, new_pos):
-                    pos = new_pos
-            elif key.name == "KEY_RIGHT":
-                new_pos = (pos[0], pos[1] + 1)
-                if not collision(board, shape, new_pos):
-                    pos = new_pos
-            elif key.name == "KEY_DOWN":
-                new_pos = (pos[0] + 1, pos[1])
-                if not collision(board, shape, new_pos):
-                    pos = new_pos
-            elif key == ' ':  # Space to rotate
-                new_shape = rotate(shape)
-                if not collision(board, new_shape, pos):
-                    shape = new_shape
+    def move_right(event):
+        nonlocal pos
+        new_pos = (pos[0], pos[1] + 1)
+        if not collision(board, shape, new_pos):
+            pos = new_pos
+
+    def move_down(event):
+        nonlocal pos
+        new_pos = (pos[0] + 1, pos[1])
+        if not collision(board, shape, new_pos):
+            pos = new_pos
+
+    def rotate_shape(event):
+        nonlocal shape
+        new_shape = rotate(shape)
+        if not collision(board, new_shape, pos):
+            shape = new_shape
+
+    root.bind("<Left>", move_left)
+    root.bind("<Right>", move_right)
+    root.bind("<Down>", move_down)
+    root.bind("<space>", rotate_shape)
+
+    drop()
+    root.mainloop()
 
 
 def main():
-    score = game()
-
+    game()
     print("Game Over")
-    print(f"Your score: {score}")
     print("Recent High Scores:")
     for i, s in enumerate(load_highscores()[:MAX_HIGHS], start=1):
         print(f"{i}. {s}")
