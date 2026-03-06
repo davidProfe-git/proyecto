@@ -74,7 +74,7 @@ class Tetris(QMainWindow):
         self.board.start()
 
         self.setWindowTitle('Tetris')
-        self.resize(WIDTH * BLOCK_SIZE, HEIGHT * BLOCK_SIZE)
+        self.setFixedSize(WIDTH * BLOCK_SIZE, HEIGHT * BLOCK_SIZE)  # Disable fullscreen by fixing the window size
         self.show()
 
 
@@ -136,6 +136,7 @@ class Board(QFrame):
             for x, cell in enumerate(row):
                 if cell:
                     ny, nx = y0 + y, x0 + x
+                    # Ensure the tetromino stays within the defined arc (board boundaries)
                     if nx < 0 or nx >= WIDTH or ny >= HEIGHT:
                         return True
                     if ny >= 0 and self.board[ny][nx]:
@@ -157,6 +158,12 @@ class Board(QFrame):
         self.board = new_board
         self.score += cleared * 100
         self.msg2statusbar.emit(str(self.score))
+
+        # End the game if the score reaches 500
+        if self.score >= 500:
+            self.timer.stop()
+            self.is_started = False
+            self.msg2statusbar.emit('Game Over - You reached 500 points!')
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -215,6 +222,21 @@ class Board(QFrame):
             self.drop()
         else:
             super(Board, self).timerEvent(event)
+
+
+def rotate_shape(self):
+    new_shape = rotate(self.current_shape)
+    y0, x0 = self.current_pos
+
+    # Check if the rotated shape goes out of bounds on the right
+    max_x = x0 + len(new_shape[0])
+    if max_x > WIDTH:
+        x0 -= max_x - WIDTH  # Shift left to fit within bounds
+
+    # Ensure the rotated shape does not collide after adjustment
+    if not self.check_collision((y0, x0)):
+        self.current_shape = new_shape
+        self.current_pos = (y0, x0)
 
 
 def main():
