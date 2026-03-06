@@ -1,10 +1,11 @@
-import curses
+from blessed import Terminal
 import random
 import time
 import json
 import os
 
 # Configuration
+term = Terminal()
 WIDTH = 10
 HEIGHT = 20
 TICK_RATE = 0.5  # seconds per drop
@@ -49,13 +50,14 @@ def add_score(score):
     save_highscores(scores)
 
 
-def draw_board(stdscr, board, score):
-    stdscr.clear()
-    for y, row in enumerate(board):
-        for x, cell in enumerate(row):
-            ch = '#' if cell else '.'
-            stdscr.addch(y, x, ch)
-    stdscr.addstr(0, WIDTH + 2, f"Score: {score}")
+def draw_board(board, score):
+    with term.location():
+        print(term.clear)
+        for y, row in enumerate(board):
+            for x, cell in enumerate(row):
+                ch = '#' if cell else '.'
+                print(term.move_xy(x, y) + ch, end='')
+        print(term.move_xy(WIDTH + 2, 0) + f"Score: {score}")
 
 
 def merge_shape(board, shape, pos):
@@ -87,11 +89,7 @@ def clear_lines(board):
     return new_board, cleared
 
 
-def game(stdscr):
-    curses.curs_set(0)
-    stdscr.nodelay(True)
-    stdscr.keypad(True)
-
+def game():
     board = [[0] * WIDTH for _ in range(HEIGHT)]
     score = 0
 
@@ -99,49 +97,48 @@ def game(stdscr):
     pos = (-len(shape), WIDTH // 2 - len(shape[0]) // 2)
     drop_time = time.time()
 
-    while True:
-        now = time.time()
-        if now - drop_time > TICK_RATE:
-            new_pos = (pos[0] + 1, pos[1])
-            if not collision(board, shape, new_pos):
-                pos = new_pos
-            else:
-                if pos[0] < 0:
-                    # game over
-                    add_score(score)
-                    return score
-                merge_shape(board, shape, pos)
-                board, cleared = clear_lines(board)
-                score += cleared * 100
-                shape = random.choice(SHAPES)
-                pos = (-len(shape), WIDTH // 2 - len(shape[0]) // 2)
-            drop_time = now
+    with term.cbreak(), term.hidden_cursor():
+        while True:
+            now = time.time()
+            if now - drop_time > TICK_RATE:
+                new_pos = (pos[0] + 1, pos[1])
+                if not collision(board, shape, new_pos):
+                    pos = new_pos
+                else:
+                    if pos[0] < 0:
+                        # game over
+                        add_score(score)
+                        return score
+                    merge_shape(board, shape, pos)
+                    board, cleared = clear_lines(board)
+                    score += cleared * 100
+                    shape = random.choice(SHAPES)
+                    pos = (-len(shape), WIDTH // 2 - len(shape[0]) // 2)
+                drop_time = now
 
-        draw_board(stdscr, board, score)
-        stdscr.refresh()
+            draw_board(board, score)
 
-        key = stdscr.getch()
-        if key == curses.KEY_LEFT:
-            new_pos = (pos[0], pos[1] - 1)
-            if not collision(board, shape, new_pos):
-                pos = new_pos
-        elif key == curses.KEY_RIGHT:
-            new_pos = (pos[0], pos[1] + 1)
-            if not collision(board, shape, new_pos):
-                pos = new_pos
-        elif key == curses.KEY_DOWN:
-            new_pos = (pos[0] + 1, pos[1])
-            if not collision(board, shape, new_pos):
-                pos = new_pos
-        elif key == ord(' '):
-            new_shape = rotate(shape)
-            if not collision(board, new_shape, pos):
-                shape = new_shape
-        time.sleep(0.01)
+            key = term.inkey(timeout=0.01)
+            if key.name == "KEY_LEFT":
+                new_pos = (pos[0], pos[1] - 1)
+                if not collision(board, shape, new_pos):
+                    pos = new_pos
+            elif key.name == "KEY_RIGHT":
+                new_pos = (pos[0], pos[1] + 1)
+                if not collision(board, shape, new_pos):
+                    pos = new_pos
+            elif key.name == "KEY_DOWN":
+                new_pos = (pos[0] + 1, pos[1])
+                if not collision(board, shape, new_pos):
+                    pos = new_pos
+            elif key == ' ':  # Space to rotate
+                new_shape = rotate(shape)
+                if not collision(board, new_shape, pos):
+                    shape = new_shape
 
 
 def main():
-    score = curses.wrapper(game)
+    score = game()
 
     print("Game Over")
     print(f"Your score: {score}")
