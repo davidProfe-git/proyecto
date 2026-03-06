@@ -1,5 +1,8 @@
-import tkinter as tk
+from PyQt5.QtWidgets import QApplication, QMainWindow, QFrame, QVBoxLayout, QLabel
+from PyQt5.QtCore import Qt, QBasicTimer, pyqtSignal
+from PyQt5.QtGui import QPainter, QColor
 import random
+import sys
 import json
 import os
 
@@ -11,13 +14,13 @@ MAX_HIGHS = 3
 
 # Colors
 COLORS = [
-    "cyan",  # I
-    "yellow",  # O
-    "purple",  # T
-    "green",  # S
-    "red",  # Z
-    "blue",  # J
-    "orange",  # L
+    QColor(0, 255, 255),  # I
+    QColor(255, 255, 0),  # O
+    QColor(128, 0, 128),  # T
+    QColor(0, 255, 0),    # S
+    QColor(255, 0, 0),    # Z
+    QColor(0, 0, 255),    # J
+    QColor(255, 165, 0),  # L
 ]
 
 # Tetromino shapes
@@ -58,131 +61,166 @@ def add_score(score):
     save_highscores(scores)
 
 
-def draw_board(canvas, board):
-    canvas.delete("all")
-    for y, row in enumerate(board):
-        for x, cell in enumerate(row):
-            if cell:
-                color = COLORS[cell - 1]
-                canvas.create_rectangle(
-                    x * BLOCK_SIZE, y * BLOCK_SIZE,
-                    (x + 1) * BLOCK_SIZE, (y + 1) * BLOCK_SIZE,
-                    fill=color, outline="black"
-                )
+class Tetris(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        self.board = Board(self)
+        self.setCentralWidget(self.board)
+
+        self.statusbar = self.statusBar()
+        self.board.msg2statusbar[str].connect(self.statusbar.showMessage)
+
+        self.board.start()
+
+        self.setWindowTitle('Tetris')
+        self.resize(WIDTH * BLOCK_SIZE, HEIGHT * BLOCK_SIZE)
+        self.show()
 
 
-def merge_shape(board, shape, pos):
-    y0, x0 = pos
-    for y, row in enumerate(shape):
-        for x, cell in enumerate(row):
-            if cell:
-                board[y0 + y][x0 + x] = cell
+class Board(QFrame):
+    msg2statusbar = pyqtSignal(str)
 
+    def __init__(self, parent):
+        super().__init__(parent)
 
-def collision(board, shape, pos):
-    y0, x0 = pos
-    for y, row in enumerate(shape):
-        for x, cell in enumerate(row):
-            if cell:
-                ny, nx = y0 + y, x0 + x
-                if nx < 0 or nx >= WIDTH or ny >= HEIGHT:
-                    return True
-                if ny >= 0 and board[ny][nx]:
-                    return True
-    return False
+        self.timer = QBasicTimer()
+        self.is_paused = False
+        self.is_started = False
+        self.board = [[0] * WIDTH for _ in range(HEIGHT)]
+        self.current_shape = None
+        self.current_pos = None
+        self.score = 0
 
+        self.setFocusPolicy(Qt.StrongFocus)
 
-def clear_lines(board):
-    new_board = [row for row in board if not all(row)]
-    cleared = HEIGHT - len(new_board)
-    for _ in range(cleared):
-        new_board.insert(0, [0] * WIDTH)
-    return new_board, cleared
+    def start(self):
+        self.is_started = True
+        self.is_paused = False
+        self.clear_board()
+        self.new_shape()
+        self.timer.start(300, self)
+        self.msg2statusbar.emit(str(self.score))
 
+    def pause(self):
+        if not self.is_started:
+            return
 
-def game():
-    root = tk.Tk()
-    root.title("Tetris")
+        self.is_paused = not self.is_paused
 
-    canvas = tk.Canvas(root, width=WIDTH * BLOCK_SIZE, height=HEIGHT * BLOCK_SIZE, bg="white")
-    canvas.pack()
-
-    board = [[0] * WIDTH for _ in range(HEIGHT)]
-    score = 0
-
-    shape = random.choice(SHAPES)
-    color = random.randint(1, len(COLORS))
-    shape = [[cell * color for cell in row] for row in shape]
-    pos = (-len(shape), WIDTH // 2 - len(shape[0]) // 2)
-
-    def drop():
-        nonlocal shape, pos, board, score
-        new_pos = (pos[0] + 1, pos[1])
-        if not collision(board, shape, new_pos):
-            pos = new_pos
+        if self.is_paused:
+            self.timer.stop()
+            self.msg2statusbar.emit('Paused')
         else:
-            if pos[0] < 0:
-                add_score(score)
-                root.destroy()
-                return
-            merge_shape(board, shape, pos)
-            board, cleared = clear_lines(board)
-            score += cleared * 100
-            shape = random.choice(SHAPES)
-            color = random.randint(1, len(COLORS))
-            shape = [[cell * color for cell in row] for row in shape]
-            pos = (-len(shape), WIDTH // 2 - len(shape[0]) // 2)
-        draw_board(canvas, board)
-        draw_board(canvas, [[0] * WIDTH for _ in range(HEIGHT)])
-        for y, row in enumerate(shape):
+            self.timer.start(300, self)
+
+        self.update()
+
+    def clear_board(self):
+        self.board = [[0] * WIDTH for _ in range(HEIGHT)]
+
+    def new_shape(self):
+        self.current_shape = random.choice(SHAPES)
+        color = random.randint(1, len(COLORS))
+        self.current_shape = [[cell * color for cell in row] for row in self.current_shape]
+        self.current_pos = (-len(self.current_shape), WIDTH // 2 - len(self.current_shape[0]) // 2)
+
+        if self.check_collision(self.current_pos):
+            self.timer.stop()
+            self.is_started = False
+            self.msg2statusbar.emit('Game Over')
+
+    def check_collision(self, pos):
+        y0, x0 = pos
+        for y, row in enumerate(self.current_shape):
             for x, cell in enumerate(row):
                 if cell:
-                    canvas.create_rectangle(
-                        (pos[1] + x) * BLOCK_SIZE, (pos[0] + y) * BLOCK_SIZE,
-                        (pos[1] + x + 1) * BLOCK_SIZE, (pos[0] + y + 1) * BLOCK_SIZE,
-                        fill=COLORS[cell - 1], outline="black"
-                    )
-        root.after(500, drop)
+                    ny, nx = y0 + y, x0 + x
+                    if nx < 0 or nx >= WIDTH or ny >= HEIGHT:
+                        return True
+                    if ny >= 0 and self.board[ny][nx]:
+                        return True
+        return False
 
-    def move_left(event):
-        nonlocal pos
-        new_pos = (pos[0], pos[1] - 1)
-        if not collision(board, shape, new_pos):
-            pos = new_pos
+    def merge_shape(self):
+        y0, x0 = self.current_pos
+        for y, row in enumerate(self.current_shape):
+            for x, cell in enumerate(row):
+                if cell:
+                    self.board[y0 + y][x0 + x] = cell
 
-    def move_right(event):
-        nonlocal pos
-        new_pos = (pos[0], pos[1] + 1)
-        if not collision(board, shape, new_pos):
-            pos = new_pos
+    def clear_lines(self):
+        new_board = [row for row in self.board if not all(row)]
+        cleared = HEIGHT - len(new_board)
+        for _ in range(cleared):
+            new_board.insert(0, [0] * WIDTH)
+        self.board = new_board
+        self.score += cleared * 100
+        self.msg2statusbar.emit(str(self.score))
 
-    def move_down(event):
-        nonlocal pos
-        new_pos = (pos[0] + 1, pos[1])
-        if not collision(board, shape, new_pos):
-            pos = new_pos
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        for y, row in enumerate(self.board):
+            for x, cell in enumerate(row):
+                if cell:
+                    color = COLORS[cell - 1]
+                    painter.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, color)
+                    painter.drawRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
 
-    def rotate_shape(event):
-        nonlocal shape
-        new_shape = rotate(shape)
-        if not collision(board, new_shape, pos):
-            shape = new_shape
+        if self.current_shape:
+            y0, x0 = self.current_pos
+            for y, row in enumerate(self.current_shape):
+                for x, cell in enumerate(row):
+                    if cell:
+                        color = COLORS[cell - 1]
+                        painter.fillRect((x0 + x) * BLOCK_SIZE, (y0 + y) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, color)
+                        painter.drawRect((x0 + x) * BLOCK_SIZE, (y0 + y) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
 
-    root.bind("<Left>", move_left)
-    root.bind("<Right>", move_right)
-    root.bind("<Down>", move_down)
-    root.bind("<space>", rotate_shape)
+    def keyPressEvent(self, event):
+        if not self.is_started or not self.current_shape:
+            return
 
-    drop()
-    root.mainloop()
+        key = event.key()
+
+        if key == Qt.Key_Left:
+            new_pos = (self.current_pos[0], self.current_pos[1] - 1)
+            if not self.check_collision(new_pos):
+                self.current_pos = new_pos
+        elif key == Qt.Key_Right:
+            new_pos = (self.current_pos[0], self.current_pos[1] + 1)
+            if not self.check_collision(new_pos):
+                self.current_pos = new_pos
+        elif key == Qt.Key_Down:
+            self.drop()
+        elif key == Qt.Key_Space:
+            new_shape = rotate(self.current_shape)
+            if not self.check_collision(self.current_pos):
+                self.current_shape = new_shape
+
+        self.update()
+
+    def drop(self):
+        new_pos = (self.current_pos[0] + 1, self.current_pos[1])
+        if not self.check_collision(new_pos):
+            self.current_pos = new_pos
+        else:
+            self.merge_shape()
+            self.clear_lines()
+            self.new_shape()
+
+        self.update()
+
+    def timerEvent(self, event):
+        if event.timerId() == self.timer.timerId():
+            self.drop()
+        else:
+            super(Board, self).timerEvent(event)
 
 
 def main():
-    game()
-    print("Game Over")
-    print("Recent High Scores:")
-    for i, s in enumerate(load_highscores()[:MAX_HIGHS], start=1):
-        print(f"{i}. {s}")
+    app = QApplication(sys.argv)
+    tetris = Tetris()
+    sys.exit(app.exec_())
 
 
 if __name__ == '__main__':
