@@ -139,7 +139,7 @@ class Board(QFrame):
                     # Ensure the tetromino stays within the defined arc (board boundaries)
                     if nx < 0 or nx >= WIDTH or ny >= HEIGHT:
                         return True
-                    if ny >= 0 and self.board[ny][nx]:
+                    if ny >= 0 and (self.board[ny][nx] != 0):  # Prevent overlap with other figures
                         return True
         return False
 
@@ -149,6 +149,12 @@ class Board(QFrame):
             for x, cell in enumerate(row):
                 if cell:
                     self.board[y0 + y][x0 + x] = cell
+
+        # Check if any row at the top is filled after merging
+        if any(self.board[0]):
+            self.timer.stop()
+            self.is_started = False
+            self.msg2statusbar.emit('Game Over - Blocks reached the top!')
 
     def clear_lines(self):
         new_board = [row for row in self.board if not all(row)]
